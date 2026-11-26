@@ -19,9 +19,11 @@ Arrow keys or WASD to drift.
 - `index.html` — rendering only (Three.js scene, input, main loop).
 - `game.js` — pure game rules, no THREE/DOM/clock. `createWorld(rng)` builds
   state, `step(world, input, dt, time)` advances it and returns collect events.
-- `tests/verify-game.mjs` — asserts the rules are unchanged: initial placement,
-  a 2000-frame frame-for-frame parity check against a reference implementation,
-  arena clamp, diagonal speed cap, and that `game.js` stays import-free.
+- `tests/verify-game.mjs` — asserts the rules through `step()`: initial placement,
+  a golden fixture (a seeded 2000-frame probe, repasted from the diff when you
+  tune on purpose), collect events and respawn distance, a wall-clock stall that
+  must not move the orb, the arena clamp, the diagonal speed cap, and that
+  `game.js` stays import-free, THREE-free and DOM-free.
 
 ## Test
 
