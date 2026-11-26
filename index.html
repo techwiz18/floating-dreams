@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floating Dreams</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #cfe4ee; }
+  body {
+    font-family: ui-rounded, "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: #4b5a66;
+  }
+  canvas { display: block; }
+
+  /* Score pill, top left */
+  #score {
+    position: fixed;
+    top: 22px;
+    left: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 8px 20px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.45);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 6px 24px rgba(120, 150, 170, 0.16);
+    color: #6b8496;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    pointer-events: none;
+    user-select: none;
+  }
+  #count {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: 0;
+    color: #4f6f86;
+    line-height: 1;
+    transition: color 0.3s ease;
+  }
+  #score.pop #count {
+    animation: pop 0.4s ease;
+  }
+  @keyframes pop {
+    40% { transform: scale(1.35); color: #e8a87c; }
+    100% { transform: scale(1); }
+  }
+
+  /* Title card fades away on its own */
+  #title {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    text-align: center;
+    pointer-events: none;
+    user-select: none;
+    animation: titleFade 1.6s ease 3.2s forwards;
+  }
+  #title h1 {
+    font-size: clamp(38px, 7vw, 66px);
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: #ffffff;
+    text-shadow: 0 8px 34px rgba(100, 130, 150, 0.35);
+  }
+  #title p {
+    margin-top: 14px;
+    font-size: 14px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.92);
+  }
+  @keyframes titleFade {
+    to { opacity: 0; }
+  }
+
+  /* Hint, bottom center */
+  #hint {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 18px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.35);
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: #6d8798;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+  <div id="score"><span id="count">0</span><span>dreams</span></div>
+  <div id="title">
+    <h1>Floating Dreams</h1>
+    <p>a quiet little sky</p>
+  </div>
+  <div id="hint">Arrow keys drift · collect the glowing crystals</div>
+
+  <!-- Serve over http (e.g. `python3 -m http.server`); ES modules can't load from file://. -->
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+    import { createWorld, step } from './game.js';
+
+    // Rules and state live in game.js; this file only renders the world.
+    const world = createWorld();
+
+    // ---------------------------------------------------------------------
+    // Scene, camera and renderer
+    // ---------------------------------------------------------------------
+    const SKY = 0xcfe4ee;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(SKY);
+    scene.fog = new THREE.Fog(SKY, 45, 120);
+
+    const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 300);
+    camera.position.set(0, 16, 20);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // ---------------------------------------------------------------------
+    // Soft lighting
+    // ---------------------------------------------------------------------
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xb9c7d4, 1.2));
+    const sun = new THREE.DirectionalLight(0xfff4e2, 0.9);
+    sun.position.set(12, 24, 8);
+    scene.add(sun);
+
+    // ---------------------------------------------------------------------
+    // The orb you steer
+    // ---------------------------------------------------------------------
+    const orb = new THREE.Group();
+    orb.add(new THREE.Mesh(
+      new THREE.SphereGeometry(1, 32, 24),
+      new THREE.MeshStandardMaterial({
+        color: 0xfff6e5,
+        emissive: 0xffd9a8,
+        emissiveIntensity: 0.5,
+        roughness: 0.35
+      })
+    ));
+    const glow = new THREE.Mesh(
+      new THREE.SphereGeometry(1.5, 24, 18),
+      new THREE.MeshBasicMaterial({
+        color: 0xffe9c6,
+        transparent: true,
+        opacity: 0.16,
+        depthWrite: false
+      })
+    );
+    orb.add(glow);
+    orb.position.set(world.orb.x, world.orb.y, world.orb.z);
+    scene.add(orb);
+
+    // ---------------------------------------------------------------------
+    // One mesh per crystal in the world
+    // ---------------------------------------------------------------------
+    const crystalGeometry = new THREE.OctahedronGeometry(0.55);
+    const crystals = world.crystals.map((crystal) => {
+      const mesh = new THREE.Mesh(crystalGeometry, new THREE.MeshStandardMaterial({
+        color: crystal.color,
+        emissive: crystal.color,
+        emissiveIntensity: 0.25,
+        roughness: 0.3
+      }));
+      mesh.position.set(crystal.x, crystal.y, crystal.z);
+      scene.add(mesh);
+      return mesh;
+    });
+
+    // ---------------------------------------------------------------------
+    // Ambient dust motes
+    // ---------------------------------------------------------------------
+    const DUST_COUNT = 400;
+    const dustPositions = new Float32Array(DUST_COUNT * 3);
+    const dustSpeeds = new Float32Array(DUST_COUNT);
+
+    for (let i = 0; i < DUST_COUNT; i++) {
+      dustPositions[i * 3] = (Math.random() - 0.5) * 140;
+      dustPositions[i * 3 + 1] = Math.random() * 26;
+      dustPositions[i * 3 + 2] = (Math.random() - 0.5) * 140;
+      dustSpeeds[i] = 0.2 + Math.random() * 0.5;
+    }
+
+    const dustGeometry = new THREE.BufferGeometry();
+    dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+    const dust = new THREE.Points(dustGeometry, new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 0.22,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false
+    }));
+    scene.add(dust);
+
+    // ---------------------------------------------------------------------
+    // Input
+    // ---------------------------------------------------------------------
+    const keys = new Set();
+
+    addEventListener('keydown', (event) => {
+      if (event.key.startsWith('Arrow')) event.preventDefault();
+      keys.add(event.key.toLowerCase());
+    });
+    addEventListener('keyup', (event) => {
+      keys.delete(event.key.toLowerCase());
+    });
+
+    function axis(positive, negative) {
+      return (positive.some((k) => keys.has(k)) ? 1 : 0) -
+             (negative.some((k) => keys.has(k)) ? 1 : 0);
+    }
+
+    // ---------------------------------------------------------------------
+    // Collect bursts
+    // ---------------------------------------------------------------------
+    const bursts = [];
+
+    function spawnBurst(position) {
+      const count = 18;
+      const points = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        const dir = new THREE.Vector3(
+          Math.random() - 0.5,
+          Math.random() - 0.5,
+          Math.random() - 0.5
+        ).normalize().multiplyScalar(Math.random() * 0.5);
+        points[i * 3] = dir.x;
+        points[i * 3 + 1] = dir.y;
+        points[i * 3 + 2] = dir.z;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(points, 3));
+      const material = new THREE.PointsMaterial({
+        color: 0xfff3d6,
+        size: 0.3,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const cloud = new THREE.Points(geometry, material);
+      cloud.position.copy(position);
+      scene.add(cloud);
+      bursts.push({ cloud, age: 0 });
+    }
+
+    // ---------------------------------------------------------------------
+    // Score
+    // ---------------------------------------------------------------------
+    const scoreEl = document.getElementById('score');
+    const countEl = document.getElementById('count');
+
+    function addScore() {
+      countEl.textContent = world.score;
+      scoreEl.classList.remove('pop');
+      void scoreEl.offsetWidth; // restart the pop animation
+      scoreEl.classList.add('pop');
+    }
+
+    // ---------------------------------------------------------------------
+    // Camera
+    // ---------------------------------------------------------------------
+    const cameraOffset = new THREE.Vector3(0, 16, 20);
+    const cameraGoal = new THREE.Vector3();
+
+    // ---------------------------------------------------------------------
+    // Main loop
+    // ---------------------------------------------------------------------
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Clamp dt so a background tab doesn't fling the orb away.
+      const dt = Math.min(clock.getDelta(), 0.05);
+      const time = clock.elapsedTime;
+
+      // --- rules -----------------------------------------------------------
+      const events = step(world, {
+        x: axis(['arrowright', 'd'], ['arrowleft', 'a']),
+        z: axis(['arrowdown', 's'], ['arrowup', 'w'])
+      }, dt, time);
+
+      for (const event of events) {
+        spawnBurst(new THREE.Vector3(event.x, event.y, event.z));
+        addScore();
+      }
+
+      // --- orb -------------------------------------------------------------
+      orb.position.set(world.orb.x, world.orb.y, world.orb.z);
+      glow.scale.setScalar(1 + Math.sin(time * 2) * 0.05);
+
+      // --- crystals --------------------------------------------------------
+      for (let i = 0; i < crystals.length; i++) {
+        const mesh = crystals[i];
+        const crystal = world.crystals[i];
+        mesh.position.set(crystal.x, crystal.y, crystal.z);
+        mesh.rotation.y += crystal.spin * dt;
+        mesh.rotation.x = Math.sin(time * 0.4 + crystal.phase) * 0.15;
+      }
+
+      // --- dust drift ------------------------------------------------------
+      const dustArray = dustGeometry.attributes.position.array;
+      for (let i = 0; i < DUST_COUNT; i++) {
+        dustArray[i * 3 + 1] += dustSpeeds[i] * dt;
+        dustArray[i * 3] += Math.sin(time * 0.3 + i) * 0.15 * dt;
+        if (dustArray[i * 3 + 1] > 26) dustArray[i * 3 + 1] = 0;
+      }
+      dustGeometry.attributes.position.needsUpdate = true;
+
+      // --- bursts ----------------------------------------------------------
+      for (let i = bursts.length - 1; i >= 0; i--) {
+        const burst = bursts[i];
+        burst.age += dt;
+        burst.cloud.scale.setScalar(1 + burst.age * 5);
+        burst.cloud.material.opacity = Math.max(0, 1 - burst.age / 0.9);
+        if (burst.age > 0.9) {
+          scene.remove(burst.cloud);
+          burst.cloud.geometry.dispose();
+          burst.cloud.material.dispose();
+          bursts.splice(i, 1);
+        }
+      }
+
+      // --- camera follow ---------------------------------------------------
+      cameraGoal.copy(orb.position).add(cameraOffset);
+      camera.position.lerp(cameraGoal, 1 - Math.exp(-3 * dt));
+      camera.lookAt(orb.position.x, orb.position.y + 0.5, orb.position.z);
+
+      renderer.render(scene, camera);
+    }
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    animate();
+
+    // Handy for tinkering in the browser console.
+    window.floatingDreams = { orb, crystals, world, get score() { return world.score; } };
+  </script>
+</body>
+</html>
