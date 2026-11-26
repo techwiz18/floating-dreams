@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createWorld, step, serialize, restore } from '../game.js';
 
 const lcg = (seed) => {
@@ -17,6 +17,12 @@ assert.equal(src.includes('THREE.'), false, 'game.js must not use THREE.*');
 assert.equal(src.includes('new THREE'), false, 'game.js must not construct THREE objects');
 assert.equal(/\b(document|window)\b/.test(src), false, 'game.js must not touch the DOM');
 assert.equal(/0x[0-9a-f]{6}/i.test(src), false, 'game.js must carry no colours');
+
+// A verify script nothing runs is a test that silently stops existing.
+const pkg = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
+for (const file of readdirSync(new URL('.', import.meta.url))) {
+  assert.ok(pkg.includes(file), `tests/${file} is not wired into npm test`);
+}
 
 // 2. Initial placement
 const w = createWorld(lcg(42));

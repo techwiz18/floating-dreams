@@ -29,11 +29,14 @@ removed or capped.
 
 ## Layout
 
-- `index.html` — wiring only: storage, input (keyboard, pointer drag, plant
-  button), audio unlock, and the frame loop.
+- `index.html` — wiring only: input (keyboard, pointer drag, plant button),
+  audio unlock, and the frame loop.
 - `game.js` — pure game rules, no THREE/DOM/clock. `createWorld(rng)` builds
   state, `step(world, input, dt, time)` advances it and returns events, and
   `serialize`/`restore` turn a world into save data and back.
+- `storage.js` — saving and loading, with the storage object passed in so a test
+  can hand it a Map. `createStore(storage, key)` returns `load`, `save(world)`
+  and `reset()`.
 - `render.js` — drawing only. `createRenderer({ THREE, world, dom })` builds the
   scene and returns `update(dt, time, events)` and `resize(width, height,
   pixelRatio)`. The whole garden draws as one instanced mesh. THREE arrives as
@@ -47,6 +50,9 @@ removed or capped.
   save/restore including junk data, a wall-clock stall that must not move the
   orb, the arena clamp, the diagonal speed cap, and that `game.js` stays
   import-free, THREE-free and DOM-free.
+- `tests/verify-storage.mjs` — drives `storage.js` with a fake storage: absent,
+  corrupt, blocked and working saves, and that `reset()` is not undone by the
+  save the page fires as it unloads.
 - `tests/verify-render.mjs` — drives `render.js` against a stub THREE: one mesh
   per crystal, one instanced mesh for the garden, the orb tracking the world,
   bursts spawning on a collect and a plant and reaping their buffers, the score
@@ -58,8 +64,24 @@ removed or capped.
 ## Test
 
 ```sh
-npm test           # the three verify scripts, no dependencies
+npm test           # the four verify scripts, no dependencies
 ```
 
 No install step is needed; `game.js` has no dependencies and the tests use only
-`node:assert` and `node:fs`.
+`node:assert` and `node:fs`. GitHub Actions runs the same command on every push
+and pull request.
+
+`index.html` has no test of its own, so a change there needs a browser check.
+The page exposes nothing to click or focus (a canvas, plus a plant button that
+is `display: none` on desktop), so drive it with page scripts: dispatch
+`KeyboardEvent` / `PointerEvent` with `evaluate`, then read
+`window.floatingDreams`. Passing that check proves the wiring, not the real
+input; a genuine thumb or keyboard still settles the feel.
+
+## Deploying
+
+Pages publishes a push in about a minute, and serves everything with
+`cache-control: max-age=600` — including 404s. A page opened in that window
+caches the missing file and stays broken through a plain reload; a hard reload
+(`Ctrl+Shift+R`) fixes it, and waiting out the ten minutes also does. Give a
+deploy a minute before opening the site.

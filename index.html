@@ -138,30 +138,18 @@
   <!-- Serve over http (e.g. `python3 -m http.server`); ES modules can't load from file://. -->
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-    import { restore, serialize, step } from './game.js';
+    import { restore, step } from './game.js';
     import { createRenderer } from './render.js';
     import { createAudio } from './audio.js';
+    import { createStore } from './storage.js';
 
-    // Rules live in game.js, drawing in render.js, sound in audio.js; this file
-    // wires them up and is the only place that touches storage.
+    // Rules live in game.js, drawing in render.js, sound in audio.js, memory in
+    // storage.js; this file wires them up.
     const SAVE_KEY = 'floating-dreams';
     const MUTE_KEY = 'floating-dreams-muted';
+    const store = createStore(localStorage, SAVE_KEY);
 
-    // A broken or missing save must never stop the sky opening.
-    function loadSave() {
-      try { return JSON.parse(localStorage.getItem(SAVE_KEY)); } catch { return null; }
-    }
-    let discarding = false; // reset() must not be undone by the pagehide save
-    function save() {
-      if (discarding) return;
-      try {
-        localStorage.setItem(SAVE_KEY, JSON.stringify(serialize(world)));
-      } catch {
-        // private mode or a full quota: play on without memory
-      }
-    }
-
-    const world = restore(loadSave());
+    const world = restore(store.load());
     const audio = createAudio({ muted: localStorage.getItem(MUTE_KEY) === '1' });
     const view = createRenderer({
       THREE,
@@ -267,10 +255,10 @@
       for (const event of events) {
         if (event.type === 'collect') {
           audio.collect();
-          save();
+          store.save(world);
         } else if (event.type === 'bloom') {
           audio.plant();
-          save();
+          store.save(world);
         }
       }
 
@@ -279,15 +267,14 @@
 
     animate();
 
-    addEventListener('pagehide', save);
+    addEventListener('pagehide', () => store.save(world));
 
     // Handy for tinkering in the browser console.
     window.floatingDreams = {
       world,
       get dreams() { return world.dreams; },
       reset() {
-        discarding = true;
-        localStorage.removeItem(SAVE_KEY);
+        store.reset();
         location.reload();
       }
     };
