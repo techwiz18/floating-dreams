@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/verify-game.mjs",
+    "test": "node tests/verify-game.mjs && node tests/verify-render.mjs",
     "start": "python3 -m http.server 8000"
   }
 }

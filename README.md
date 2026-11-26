@@ -16,14 +16,22 @@ Arrow keys or WASD to drift.
 
 ## Layout
 
-- `index.html` — rendering only (Three.js scene, input, main loop).
+- `index.html` — wiring only: imports THREE, mounts the renderer, maps keys and
+  owns the frame loop.
 - `game.js` — pure game rules, no THREE/DOM/clock. `createWorld(rng)` builds
   state, `step(world, input, dt, time)` advances it and returns collect events.
+- `render.js` — drawing only. `createRenderer({ THREE, world, dom })` builds the
+  scene and returns `update(dt, time, events)` and `resize(width, height,
+  pixelRatio)`. THREE arrives as an argument and no global is read, so it loads
+  under a stub.
 - `tests/verify-game.mjs` — asserts the rules through `step()`: initial placement,
   a golden fixture (a seeded 2000-frame probe, repasted from the diff when you
   tune on purpose), collect events and respawn distance, a wall-clock stall that
   must not move the orb, the arena clamp, the diagonal speed cap, and that
   `game.js` stays import-free, THREE-free and DOM-free.
+- `tests/verify-render.mjs` — drives `render.js` against a stub THREE: one mesh
+  per crystal, the orb tracking the world, bursts spawning on a collect and
+  reaping their buffers, the score pill, and resize.
 
 ## Test
 
