@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createWorld, step } from '../game.js';
+import { createWorld, step, serialize, restore } from '../game.js';
 
 const lcg = (seed) => {
   let s = seed >>> 0;
@@ -21,7 +21,8 @@ assert.equal(/0x[0-9a-f]{6}/i.test(src), false, 'game.js must carry no colours')
 // 2. Initial placement
 const w = createWorld(lcg(42));
 assert.equal(w.crystals.length, 20);
-assert.equal(w.score, 0);
+assert.equal(w.dreams, 0);
+assert.deepEqual(w.blooms, [], 'a new sky has no blooms');
 assert.deepEqual(w.orb, { x: 0, y: 1.6, z: 0 });
 for (const c of w.crystals) {
   const r = Math.hypot(c.x, c.z);
@@ -90,9 +91,56 @@ for (let i = 0; i < 100; i++) {
   assert.ok(events.some((event) => event.index === 3), `crystal 3 not collected at ${i}`);
   assert.ok(dist2(target, collector.orb) > 9, `respawn ${i} landed ${dist2(target, collector.orb)} from the orb`);
 }
-assert.equal(collector.score, collects, 'score counts every collect');
+assert.equal(collector.dreams, collects, 'dreams count every collect');
+assert.equal(collector.lastCrystal, 3, 'the collected crystal remembers its slot');
 
-// 5. A wall-clock jump cannot fling the orb: frame time is what moves it
+// 5. Planting: free, at the orb, coloured by the crystal just gathered, kept.
+const gardener = createWorld(lcg(11));
+gardener.orb.x = 4;
+gardener.orb.z = -7;
+const planted = step(gardener, { x: 0, z: 0, plant: true }, 1 / 60, 0);
+assert.equal(gardener.blooms.length, 1, 'one press plants one bloom');
+assert.equal(gardener.dreams, 0, 'planting costs no dreams');
+const bloom = gardener.blooms[0];
+assert.equal(bloom.x, gardener.orb.x, 'the bloom lands under the orb');
+assert.equal(bloom.z, gardener.orb.z);
+assert.deepEqual(
+  planted.filter((event) => event.type === 'bloom'),
+  [{ type: 'bloom', x: bloom.x, z: bloom.z }],
+  'planting reports where it happened'
+);
+
+step(gardener, STILL, 1 / 60, 0);
+assert.equal(gardener.blooms.length, 1, 'only the pulse plants, not the holding');
+
+const picked = createWorld(lcg(12));
+picked.crystals[5].x = picked.orb.x;
+picked.crystals[5].z = picked.orb.z;
+picked.crystals[5].baseY = picked.orb.y;
+picked.crystals[5].phase = 0;
+step(picked, STILL, 1 / 60, 0);
+step(picked, { x: 0, z: 0, plant: true }, 1 / 60, 0);
+assert.equal(picked.blooms[0].colour, 5, 'a bloom takes the colour of the last dream');
+
+// 6. Saving: dreams and garden survive, junk does not crash the opening.
+const saved = serialize(gardener);
+assert.deepEqual(JSON.parse(JSON.stringify(saved)), saved, 'the save is JSON-safe');
+const revived = restore(saved, lcg(1));
+assert.equal(revived.crystals.length, 20, 'a visit rebuilds the sky');
+assert.deepEqual([revived.orb.x, revived.orb.z], [0, 0], 'the orb starts at the centre');
+assert.equal(revived.dreams, gardener.dreams);
+assert.equal(revived.blooms.length, 1);
+assert.ok(Math.abs(revived.blooms[0].x - bloom.x) < 0.005, 'bloom x comes back in place');
+assert.ok(Math.abs(revived.blooms[0].z - bloom.z) < 0.005, 'bloom z comes back in place');
+assert.equal(revived.blooms[0].colour, bloom.colour);
+
+assert.equal(restore(null).blooms.length, 0, 'no save means a fresh sky');
+assert.equal(restore({ version: 99, dreams: 8 }).dreams, 0, 'an unknown save version is ignored');
+const junk = restore({ version: 1, dreams: 'lots', blooms: [null, ['a', 'b'], [1, 2], [3, 4, 'red']] });
+assert.equal(junk.dreams, 0, 'a non-numeric dream count is ignored');
+assert.deepEqual(junk.blooms, [{ x: 1, z: 2, colour: 0 }, { x: 3, z: 4, colour: 0 }], 'only usable blooms load');
+
+// 7. A wall-clock jump cannot fling the orb: frame time is what moves it
 const stalled = createWorld(lcg(5));
 const start = { x: stalled.orb.x, z: stalled.orb.z };
 step(stalled, STILL, 0.05, 5);
@@ -107,14 +155,14 @@ step(coarse, STILL, 0.05, 2.5);
 assert.equal(smooth.orb.y, coarse.orb.y, 'y is a function of wall time only');
 assert.notEqual(smooth.orb.x, coarse.orb.x, 'x is a function of frame time');
 
-// 6. Arena clamp
+// 8. Arena clamp
 const edge = createWorld(lcg(2));
 edge.orb.x = 100;
 edge.orb.z = 0;
 step(edge, STILL, 1 / 60, 0);
 assert.ok(Math.hypot(edge.orb.x, edge.orb.z) <= 50.001, `radius ${Math.hypot(edge.orb.x, edge.orb.z)}`);
 
-// 7. Speed cap on diagonal
+// 9. Speed cap on diagonal
 const fast = createWorld(lcg(3));
 let peak = 0;
 for (let i = 0; i < 60; i++) {
@@ -123,7 +171,7 @@ for (let i = 0; i < 60; i++) {
 }
 assert.ok(peak <= 13 + 1e-9 && peak > 12.9, `peak speed ${peak}`);
 
-// 8. Orbs never escape the arena under sustained input
+// 10. Orbs never escape the arena under sustained input
 const runner = createWorld(lcg(4));
 for (let i = 0; i < 4000; i++) {
   step(runner, { x: i % 7 < 3 ? 1 : i % 7 < 5 ? -1 : 0, z: i % 11 < 5 ? 1 : -1 }, 0.05, i * 0.05);

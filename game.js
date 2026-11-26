@@ -13,14 +13,17 @@ const FRICTION = 2.2;
 const ARENA_RADIUS = 50;
 const MIN_SPAWN_DISTANCE = 9;
 const SPAWN_ATTEMPTS = 12;
+const SAVE_VERSION = 1;
 
 export function createWorld(rng = Math.random) {
   const world = {
     rng,
-    score: 0,
+    dreams: 0,
+    lastCrystal: 0,
     orb: { x: 0, y: 1.6, z: 0 },
     vel: { x: 0, z: 0 },
-    crystals: []
+    crystals: [],
+    blooms: []
   };
 
   for (let i = 0; i < CRYSTAL_COUNT; i++) {
@@ -51,7 +54,8 @@ function placeCrystal(world, crystal, firstSpawn = false) {
   crystal.spin = 0.4 + world.rng() * 0.5;
 }
 
-// input is a raw axis: { x: -1|0|1, z: -1|0|1 }. Returns [] or collect events.
+// input is { x: -1|0|1, z: -1|0|1, plant: true } — plant is a one-frame pulse,
+// so holding the key does not plant every frame. Returns [] or world events.
 export function step(world, input, dt, time) {
   const events = [];
 
@@ -94,6 +98,13 @@ export function step(world, input, dt, time) {
     world.vel.z *= 0.5;
   }
 
+  // --- blooms -------------------------------------------------------------
+  // A bloom costs nothing and stays where it is planted, forever.
+  if (input.plant) {
+    world.blooms.push({ x: world.orb.x, z: world.orb.z, colour: world.lastCrystal });
+    events.push({ type: 'bloom', x: world.orb.x, z: world.orb.z });
+  }
+
   // --- crystals -----------------------------------------------------------
   for (let i = 0; i < world.crystals.length; i++) {
     const crystal = world.crystals[i];
@@ -104,10 +115,40 @@ export function step(world, input, dt, time) {
     const dz = crystal.z - world.orb.z;
     if (dx * dx + dy * dy + dz * dz < COLLECT_DISTANCE * COLLECT_DISTANCE) {
       events.push({ type: 'collect', index: i, x: crystal.x, y: crystal.y, z: crystal.z });
-      world.score += 1;
+      world.dreams += 1;
+      world.lastCrystal = i;
       placeCrystal(world, crystal);
     }
   }
 
   return events;
+}
+
+// Saved state is the garden and the dream count. The sky rebuilds fresh, and
+// the orb starts at its centre, so a visit always opens the same way.
+export function serialize(world) {
+  const round = (n) => Math.round(n * 100) / 100;
+  return {
+    version: SAVE_VERSION,
+    dreams: world.dreams,
+    blooms: world.blooms.map((bloom) => [round(bloom.x), round(bloom.z), bloom.colour])
+  };
+}
+
+// Anything unrecognised is treated as no save at all: a broken file must not
+// stop the sky from opening.
+export function restore(saved, rng = Math.random) {
+  const world = createWorld(rng);
+  if (!saved || saved.version !== SAVE_VERSION) return world;
+
+  if (Number.isInteger(saved.dreams) && saved.dreams > 0) world.dreams = saved.dreams;
+  const blooms = Array.isArray(saved.blooms) ? saved.blooms : [];
+  for (const entry of blooms) {
+    if (!Array.isArray(entry)) continue;
+    const [x, z, colour] = entry;
+    if (!Number.isFinite(x) || !Number.isFinite(z)) continue;
+    world.blooms.push({ x, z, colour: Number.isInteger(colour) ? colour : 0 });
+  }
+
+  return world;
 }

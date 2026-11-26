@@ -71,6 +71,26 @@ const THREE = {
   DirectionalLight: class extends Object3D {},
   SphereGeometry: class {},
   OctahedronGeometry: class {},
+  SphereGeometry: class {},
+  Matrix4: class {
+    constructor() { this.x = 0; this.y = 0; this.z = 0; }
+    makeTranslation(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+  },
+  InstancedMesh: class extends Object3D {
+    constructor(geometry, mat, count) {
+      super();
+      this.geometry = geometry;
+      this.material = mat;
+      this.count = count;
+      this.matrices = [];
+      this.colors = [];
+      this.instanceMatrix = { needsUpdate: false };
+      this.isInstancedMesh = true;
+    }
+    setMatrixAt(i, m) { this.matrices[i] = { x: m.x, y: m.y, z: m.z }; }
+    setColorAt(i, c) { this.colors[i] = c; }
+    dispose() { this.disposed = true; }
+  },
   BufferGeometry: class {
     constructor() { this.attributes = {}; }
     setAttribute(name, attribute) { this.attributes[name] = attribute; }
@@ -119,18 +139,18 @@ assert.equal(firstCrystalMesh.rotation.y, world.crystals[0].spin * 0.1, 'crystal
 assert.equal(camera.looking, true, 'camera looks at the orb');
 
 // 3. a collect event bursts and updates the pill; other events are ignored
-world.score = 1;
+world.dreams = 1;
 const before = scene.children.length;
 const dust = scene.children.find((c) => c.isPoints);
 view.update(0.01, 0.5, [{ type: 'respawn', x: 1, y: 2, z: 3 }]);
 assert.equal(scene.children.length, before, 'a non-collect event spawns nothing');
-assert.equal(count.textContent, '0', 'a non-collect event scores nothing');
+assert.equal(count.textContent, 0, 'a non-collect event scores nothing');
 view.update(0.01, 0.5, [{ type: 'collect', index: 0, x: 1, y: 2, z: 3 }]);
 const burst = scene.children.find((c) => c.isPoints && c !== dust);
 assert.ok(burst, 'burst added to the scene');
 assert.equal(scene.children.length, before + 1, 'exactly one burst');
 assert.deepEqual([burst.position.x, burst.position.y, burst.position.z], [1, 2, 3], 'burst at the collect point');
-assert.equal(count.textContent, 1, 'score pill shows world.score');
+assert.equal(count.textContent, 1, 'score pill shows world.dreams');
 assert.equal(score.classList.pop, true, 'score pill pops');
 
 // 4. the burst is reaped and its buffers released
@@ -139,7 +159,33 @@ assert.equal(scene.children.length, before, 'burst removed after 0.9s');
 assert.equal(burst.geometry.disposed, true, 'burst geometry disposed');
 assert.equal(burst.material.disposed, true, 'burst material disposed');
 
-// 5. resize is the page's to drive
+// 5. the garden: one instanced mesh, rebuilt only when it grows
+const crowded = scene.children.length;
+world.blooms.push({ x: 3, z: -4, colour: 1 });
+view.update(0.1, 0.5, []);
+const garden = scene.children.find((c) => c.isInstancedMesh);
+assert.ok(garden, 'a garden mesh appears');
+assert.equal(garden.count, 1, 'one instance per bloom');
+assert.deepEqual([garden.matrices[0].x, garden.matrices[0].z], [3, -4], 'a bloom sits where it was planted');
+assert.equal(garden.colors[0].hex, PALETTE[1], 'a bloom takes the colour of its dream');
+assert.equal(scene.children.length, crowded + 1, 'one mesh holds the whole garden');
+
+world.blooms.push({ x: -6, z: 1, colour: 8 });
+view.update(0.1, 0.5, []);
+const regrown = scene.children.find((c) => c.isInstancedMesh);
+assert.equal(regrown.count, 2, 'the garden grows');
+assert.equal(garden.disposed, true, 'the replaced mesh releases its buffers');
+assert.equal(regrown.colors[1].hex, PALETTE[2], 'colour indices wrap the palette');
+
+const beforeBloomBurst = scene.children.length;
+view.update(0.1, 1.5, [{ type: 'bloom', x: 3, z: -4 }]);
+const bloomBurst = scene.children.find((c) => c.isPoints && c !== dust);
+assert.ok(bloomBurst, 'planting emits a burst');
+assert.equal(bloomBurst.position.y, 0.6, 'the burst sits at bloom height');
+assert.equal(scene.children.length, beforeBloomBurst + 1, 'exactly one bloom burst');
+assert.equal(count.textContent, 1, 'planting does not change the dream count');
+
+// 6. resize is the page's to drive
 view.resize(800, 600, 2);
 assert.equal(camera.aspect, 800 / 600);
 assert.equal(camera.projected, true);

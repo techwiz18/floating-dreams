@@ -4,10 +4,12 @@
 const SKY = 0xcfe4ee;
 const DUST_COUNT = 400;
 const PALETTE = [0xa8dadc, 0xcdb4db, 0xffc8dd, 0xbde0fe, 0xb9fbc0, 0xffd6a5];
+const BLOOM_Y = 0.6;
 
 // update(dt, time, events) is a function of its arguments, like step().
 export function createRenderer({ THREE, world, dom }) {
   const { parent, score, count } = dom;
+  count.textContent = world.dreams;
 
   // --- scene, camera and renderer -----------------------------------------
   const scene = new THREE.Scene();
@@ -67,6 +69,31 @@ export function createRenderer({ THREE, world, dom }) {
     return mesh;
   });
 
+  // --- planted blooms: one instanced mesh, however many there are ----------
+  const bloomGeometry = new THREE.SphereGeometry(0.4, 8, 6);
+  // Unlit: the instance colour is the colour, so blooms stay pastel against the
+  // bright sky instead of turning grey in shadow.
+  const bloomMaterial = new THREE.MeshBasicMaterial({ toneMapped: false });
+  const bloomMatrix = new THREE.Matrix4();
+  let bloomMesh = null;
+  let bloomCount = 0;
+
+  function rebuildBlooms() {
+    if (bloomMesh) {
+      scene.remove(bloomMesh);
+      bloomMesh.dispose();
+      bloomMesh = null;
+    }
+    bloomCount = world.blooms.length;
+    if (bloomCount === 0) return;
+    bloomMesh = new THREE.InstancedMesh(bloomGeometry, bloomMaterial, bloomCount);
+    for (let i = 0; i < bloomCount; i++) {
+      const colour = PALETTE[world.blooms[i].colour % PALETTE.length];
+      bloomMesh.setColorAt(i, new THREE.Color(colour));
+    }
+    scene.add(bloomMesh);
+  }
+
   // --- ambient dust motes --------------------------------------------------
   const dustPositions = new Float32Array(DUST_COUNT * 3);
   const dustSpeeds = new Float32Array(DUST_COUNT);
@@ -92,7 +119,7 @@ export function createRenderer({ THREE, world, dom }) {
   // --- collect bursts ------------------------------------------------------
   const bursts = [];
 
-  function spawnBurst(position) {
+  function spawnBurst(position, colour = 0xfff3d6) {
     const dots = 18;
     const points = new Float32Array(dots * 3);
     for (let i = 0; i < dots; i++) {
@@ -108,7 +135,7 @@ export function createRenderer({ THREE, world, dom }) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(points, 3));
     const material = new THREE.PointsMaterial({
-      color: 0xfff3d6,
+      color: colour,
       size: 0.3,
       transparent: true,
       depthWrite: false,
@@ -120,9 +147,9 @@ export function createRenderer({ THREE, world, dom }) {
     bursts.push({ cloud, age: 0 });
   }
 
-  // --- score pill ----------------------------------------------------------
-  function addScore() {
-    count.textContent = world.score;
+  // --- dreams pill ---------------------------------------------------------
+  function addDreams() {
+    count.textContent = world.dreams;
     score.classList.remove('pop');
     void score.offsetWidth; // restart the pop animation
     score.classList.add('pop');
@@ -141,10 +168,23 @@ export function createRenderer({ THREE, world, dom }) {
 
   function update(dt, time, events) {
     for (const event of events) {
-      if (event.type !== 'collect') continue;
-      spawnBurst(new THREE.Vector3(event.x, event.y, event.z));
-      addScore();
+      if (event.type === 'collect') {
+        spawnBurst(new THREE.Vector3(event.x, event.y, event.z));
+        addDreams();
+      } else if (event.type === 'bloom') {
+        spawnBurst(new THREE.Vector3(event.x, BLOOM_Y, event.z), 0xffd6a5);
+      }
     }
+
+    // --- garden ------------------------------------------------------------
+    if (world.blooms.length !== bloomCount) rebuildBlooms();
+    for (let i = 0; i < bloomCount; i++) {
+      const bloom = world.blooms[i];
+      const sway = Math.sin(time * 0.6 + bloom.x * 0.3 + bloom.z * 0.2) * 0.08;
+      bloomMatrix.makeTranslation(bloom.x, BLOOM_Y + sway, bloom.z);
+      bloomMesh.setMatrixAt(i, bloomMatrix);
+    }
+    if (bloomMesh) bloomMesh.instanceMatrix.needsUpdate = true;
 
     // --- orb ---------------------------------------------------------------
     orb.position.set(world.orb.x, world.orb.y, world.orb.z);

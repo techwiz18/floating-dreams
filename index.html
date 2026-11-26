@@ -11,7 +11,7 @@
     font-family: ui-rounded, "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
     color: #4b5a66;
   }
-  canvas { display: block; }
+  canvas { display: block; touch-action: none; }
 
   /* Score pill, top left */
   #score {
@@ -48,6 +48,35 @@
   @keyframes pop {
     40% { transform: scale(1.35); color: #e8a87c; }
     100% { transform: scale(1); }
+  }
+
+  /* Plant button, touch devices only */
+  #plant {
+    display: none;
+    position: fixed;
+    right: 24px;
+    bottom: 22px;
+    width: 68px;
+    height: 68px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 6px 24px rgba(120, 150, 170, 0.2);
+    color: #6b8496;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+  #plant:active { transform: scale(0.94); }
+  @media (pointer: coarse) {
+    #plant { display: block; }
+    #hint { bottom: 104px; } /* clear of the plant button */
   }
 
   /* Title card fades away on its own */
@@ -103,16 +132,37 @@
     <h1>Floating Dreams</h1>
     <p>a quiet little sky</p>
   </div>
-  <div id="hint">Arrow keys drift · collect the glowing crystals</div>
+  <div id="hint">Arrow keys drift · space plants</div>
+  <button id="plant" type="button" aria-label="Plant a bloom">plant</button>
 
   <!-- Serve over http (e.g. `python3 -m http.server`); ES modules can't load from file://. -->
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-    import { createWorld, step } from './game.js';
+    import { restore, serialize, step } from './game.js';
     import { createRenderer } from './render.js';
+    import { createAudio } from './audio.js';
 
-    // Rules live in game.js, drawing in render.js; this file wires them up.
-    const world = createWorld();
+    // Rules live in game.js, drawing in render.js, sound in audio.js; this file
+    // wires them up and is the only place that touches storage.
+    const SAVE_KEY = 'floating-dreams';
+    const MUTE_KEY = 'floating-dreams-muted';
+
+    // A broken or missing save must never stop the sky opening.
+    function loadSave() {
+      try { return JSON.parse(localStorage.getItem(SAVE_KEY)); } catch { return null; }
+    }
+    let discarding = false; // reset() must not be undone by the pagehide save
+    function save() {
+      if (discarding) return;
+      try {
+        localStorage.setItem(SAVE_KEY, JSON.stringify(serialize(world)));
+      } catch {
+        // private mode or a full quota: play on without memory
+      }
+    }
+
+    const world = restore(loadSave());
+    const audio = createAudio({ muted: localStorage.getItem(MUTE_KEY) === '1' });
     const view = createRenderer({
       THREE,
       world,
@@ -127,15 +177,31 @@
     const fit = () => view.resize(innerWidth, innerHeight, Math.min(devicePixelRatio, 2));
     fit();
     addEventListener('resize', fit);
+    view.update(0, 0, []); // paint the saved garden before the first frame
 
     // ---------------------------------------------------------------------
     // Input
     // ---------------------------------------------------------------------
     const keys = new Set();
+    let plantQueued = false;
+    let drag = null;
+    const DEAD_ZONE = 14;
 
     addEventListener('keydown', (event) => {
-      if (event.key.startsWith('Arrow')) event.preventDefault();
-      keys.add(event.key.toLowerCase());
+      if (event.key.startsWith('Arrow') || event.key === ' ') event.preventDefault();
+      audio.unlock();
+      const key = event.key.toLowerCase();
+
+      if (key === 'm') {
+        audio.setMuted(!audio.muted);
+        try { localStorage.setItem(MUTE_KEY, audio.muted ? '1' : '0'); } catch { /* no memory, still plays */ }
+        return;
+      }
+      if (key === ' ' || key === 'e') {
+        if (!event.repeat) plantQueued = true;
+        return;
+      }
+      keys.add(key);
     });
     addEventListener('keyup', (event) => {
       keys.delete(event.key.toLowerCase());
@@ -145,6 +211,39 @@
       return (positive.some((k) => keys.has(k)) ? 1 : 0) -
              (negative.some((k) => keys.has(k)) ? 1 : 0);
     }
+
+    // Touch: hold a thumb anywhere and drag away from where it landed to steer;
+    // small moves near the start point are ignored so a tap does not drift.
+    const canvas = document.querySelector('canvas');
+
+    canvas.addEventListener('pointerdown', (event) => {
+      audio.unlock();
+      if (drag) return;
+      try { canvas.setPointerCapture(event.pointerId); } catch { /* pointer already gone */ }
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, axisX: 0, axisZ: 0 };
+    });
+    canvas.addEventListener('pointermove', (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y;
+      drag.axisX = Math.abs(dx) > DEAD_ZONE ? Math.sign(dx) : 0;
+      drag.axisZ = Math.abs(dy) > DEAD_ZONE ? Math.sign(dy) : 0;
+    });
+    const release = (event) => {
+      if (drag && event.pointerId === drag.id) drag = null;
+    };
+    canvas.addEventListener('pointerup', release);
+    canvas.addEventListener('pointercancel', release);
+
+    document.getElementById('plant').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      audio.unlock();
+      plantQueued = true;
+    });
+
+    document.getElementById('hint').textContent = matchMedia('(pointer: coarse)').matches
+      ? 'drag to drift · tap plant'
+      : 'arrow keys drift · space plants · M mutes';
 
     // ---------------------------------------------------------------------
     // Main loop
@@ -159,17 +258,39 @@
       const time = clock.elapsedTime;
 
       const events = step(world, {
-        x: axis(['arrowright', 'd'], ['arrowleft', 'a']),
-        z: axis(['arrowdown', 's'], ['arrowup', 'w'])
+        x: axis(['arrowright', 'd'], ['arrowleft', 'a']) || (drag ? drag.axisX : 0),
+        z: axis(['arrowdown', 's'], ['arrowup', 'w']) || (drag ? drag.axisZ : 0),
+        plant: plantQueued
       }, dt, time);
+      plantQueued = false;
+
+      for (const event of events) {
+        if (event.type === 'collect') {
+          audio.collect();
+          save();
+        } else if (event.type === 'bloom') {
+          audio.plant();
+          save();
+        }
+      }
 
       view.update(dt, time, events);
     }
 
     animate();
 
+    addEventListener('pagehide', save);
+
     // Handy for tinkering in the browser console.
-    window.floatingDreams = { world, get score() { return world.score; } };
+    window.floatingDreams = {
+      world,
+      get dreams() { return world.dreams; },
+      reset() {
+        discarding = true;
+        localStorage.removeItem(SAVE_KEY);
+        location.reload();
+      }
+    };
   </script>
 </body>
 </html>
