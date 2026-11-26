@@ -16,6 +16,7 @@ assert.equal(/^\s*import\b/m.test(src), false, 'game.js must have no imports');
 assert.equal(src.includes('THREE.'), false, 'game.js must not use THREE.*');
 assert.equal(src.includes('new THREE'), false, 'game.js must not construct THREE objects');
 assert.equal(/\b(document|window)\b/.test(src), false, 'game.js must not touch the DOM');
+assert.equal(/0x[0-9a-f]{6}/i.test(src), false, 'game.js must carry no colours');
 
 // 2. Initial placement
 const w = createWorld(lcg(42));

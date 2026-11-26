@@ -3,6 +3,7 @@
 
 const SKY = 0xcfe4ee;
 const DUST_COUNT = 400;
+const PALETTE = [0xa8dadc, 0xcdb4db, 0xffc8dd, 0xbde0fe, 0xb9fbc0, 0xffd6a5];
 
 // update(dt, time, events) is a function of its arguments, like step().
 export function createRenderer({ THREE, world, dom }) {
@@ -53,10 +54,11 @@ export function createRenderer({ THREE, world, dom }) {
 
   // --- one mesh per crystal ------------------------------------------------
   const crystalGeometry = new THREE.OctahedronGeometry(0.55);
-  const crystals = world.crystals.map((crystal) => {
+  const crystals = world.crystals.map((crystal, i) => {
+    const color = PALETTE[i % PALETTE.length];
     const mesh = new THREE.Mesh(crystalGeometry, new THREE.MeshStandardMaterial({
-      color: crystal.color,
-      emissive: crystal.color,
+      color,
+      emissive: color,
       emissiveIntensity: 0.25,
       roughness: 0.3
     }));
@@ -139,6 +141,7 @@ export function createRenderer({ THREE, world, dom }) {
 
   function update(dt, time, events) {
     for (const event of events) {
+      if (event.type !== 'collect') continue;
       spawnBurst(new THREE.Vector3(event.x, event.y, event.z));
       addScore();
     }

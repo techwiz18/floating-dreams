@@ -13,7 +13,6 @@ const FRICTION = 2.2;
 const ARENA_RADIUS = 50;
 const MIN_SPAWN_DISTANCE = 9;
 const SPAWN_ATTEMPTS = 12;
-const PALETTE = [0xa8dadc, 0xcdb4db, 0xffc8dd, 0xbde0fe, 0xb9fbc0, 0xffd6a5];
 
 export function createWorld(rng = Math.random) {
   const world = {
@@ -25,7 +24,7 @@ export function createWorld(rng = Math.random) {
   };
 
   for (let i = 0; i < CRYSTAL_COUNT; i++) {
-    const crystal = { x: 0, y: 0, z: 0, baseY: 0, phase: 0, spin: 0, color: PALETTE[i % PALETTE.length] };
+    const crystal = { x: 0, y: 0, z: 0, baseY: 0, phase: 0, spin: 0 };
     placeCrystal(world, crystal, true);
     world.crystals.push(crystal);
   }

@@ -99,6 +99,10 @@ const view = createRenderer({ THREE, world, dom: { parent, score, count } });
 // 1. the canvas is mounted and the scene is built once
 assert.equal(parent.appended.length, 1, 'one canvas appended');
 assert.equal(scene.children.filter((c) => c.isMesh).length, 20, 'one mesh per crystal');
+const PALETTE = [0xa8dadc, 0xcdb4db, 0xffc8dd, 0xbde0fe, 0xb9fbc0, 0xffd6a5];
+scene.children.filter((c) => c.isMesh).forEach((mesh, i) => {
+  assert.equal(mesh.material.color, PALETTE[i % PALETTE.length], `crystal ${i} takes the palette in order`);
+});
 assert.equal(scene.children.filter((c) => c.isPoints).length, 1, 'one dust cloud');
 const orbGroup = scene.children.find((c) => c.isGroup);
 assert.ok(orbGroup, 'the orb group is in the scene');
@@ -114,10 +118,13 @@ const firstCrystalMesh = scene.children.filter((c) => c.isMesh)[0];
 assert.equal(firstCrystalMesh.rotation.y, world.crystals[0].spin * 0.1, 'crystals spin with dt');
 assert.equal(camera.looking, true, 'camera looks at the orb');
 
-// 3. a collect event bursts and updates the pill
+// 3. a collect event bursts and updates the pill; other events are ignored
 world.score = 1;
 const before = scene.children.length;
 const dust = scene.children.find((c) => c.isPoints);
+view.update(0.01, 0.5, [{ type: 'respawn', x: 1, y: 2, z: 3 }]);
+assert.equal(scene.children.length, before, 'a non-collect event spawns nothing');
+assert.equal(count.textContent, '0', 'a non-collect event scores nothing');
 view.update(0.01, 0.5, [{ type: 'collect', index: 0, x: 1, y: 2, z: 3 }]);
 const burst = scene.children.find((c) => c.isPoints && c !== dust);
 assert.ok(burst, 'burst added to the scene');
